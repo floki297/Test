@@ -76,7 +76,7 @@ def simulate_live_check(card_data):
             "insufficient_funds": "Nicht genügend Guthaben",
             "declined": "Zahlung abgelehnt (z.B. falscher CVV)"
         }[status],
-        "gateway": random.choice(["Stripe", "PayPal", "Adyen", "MockGateway")
+        "gateway": random.choice(["Stripe", "PayPal", "Adyen", "MockGateway"])
     }
     return response
 
