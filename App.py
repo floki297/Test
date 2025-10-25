@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import time
 import requests
+import stripe  # Neu: Stripe-Bibliothek (pip install stripe)
 
 # ========================================
 # KONFIGURATION
@@ -51,7 +52,7 @@ def generate_from_bin(bin_prefix: str, quantity: int = 1):
         temp_number = bin_prefix + middle + "0"
         cc_number = luhn_checksum(temp_number)
 
-        month = f"{random.randint(1,  Odpowied:12):02d}"
+        month = f"{random.randint(1, 12):02d}"
         year = str(random.randint(2026, 2030))
         cvv = "".join(str(random.randint(0, 9)) for _ in range(3))
 
@@ -61,7 +62,7 @@ def generate_from_bin(bin_prefix: str, quantity: int = 1):
             "Ablaufdatum": f"{month}/{year}",
             "CVV": cvv
         })
-    return sorted(cards, key=lambda x: x["CC-Nummer"])  # SORTIEREN
+    return cards
 
 
 def generate_card(
@@ -105,6 +106,36 @@ def simulate_check(card):
     return {"status": status, "Nachricht": message}
 
 
+def stripe_sandbox_check(card_number, exp_month, exp_year, cvv, api_key):
+    """Echter Check in Stripe Sandbox (Test-Mode)."""
+    stripe.api_key = api_key
+    try:
+        # PaymentIntent für 1 Cent erstellen & bestätigen
+        intent = stripe.PaymentIntent.create(
+            amount=1,  # 0.01 USD
+            currency='usd',
+            payment_method_data={
+                'type': 'card',
+                'card': {
+                    'number': card_number,
+                    'exp_month': int(exp_month),
+                    'exp_year': 2000 + int(exp_year[-2:]),  # z.B. 2029 -> 2029
+                    'cvc': cvv,
+                },
+            },
+            confirm=True,
+            return_url='https://example.com/return'  # Dummy
+        )
+        if intent.status == 'succeeded':
+            return {"status": "live", "Nachricht": "Zahlung erfolgreich (Sandbox)", "error": None}
+        else:
+            return {"status": "dead", "Nachricht": f"Status: {intent.status}", "error": None}
+    except stripe.error.CardError as e:
+        return {"status": "dead", "Nachricht": f"Card Error: {e.user_message}", "error": str(e)}
+    except Exception as e:
+        return {"status": "error", "Nachricht": f"API-Fehler: {str(e)}", "error": str(e)}
+
+
 def search_bin(bin_input):
     if len(bin_input) != 6 or not bin_input.isdigit():
         return {"Fehler": "BIN muss 6 Ziffern sein"}
@@ -127,9 +158,12 @@ def search_bin(bin_input):
 # STREAMLIT UI
 # ========================================
 
-st.set_page_config(page_title="CC Generator + Sortiert", layout="wide")
+st.set_page_config(page_title="CC Generator + Sandbox", layout="wide")
 st.title("Test-Kreditkarten Generator")
-st.caption("Karten werden automatisch sortiert nach CC-Nummer")
+st.caption("Mit echtem Stripe Sandbox-Check (Test-Mode)")
+
+# Stripe API-Key (Secret)
+stripe_key = st.sidebar.text_input("Stripe Test-API-Key (sk_test_...)", type="password", help="Aus dashboard.stripe.com/test/apikeys")
 
 # === TABS ===
 tab1, tab2, tab3 = st.tabs(["Von BIN generieren", "Normal generieren", "BIN suchen"])
@@ -147,6 +181,7 @@ with tab1:
             with st.spinner("Generiere & sortiere Karten..."):
                 try:
                     cards = generate_from_bin(bin_input_tab1, qty_bin)
+                    cards = sorted(cards, key=lambda x: x["CC-Nummer"])
                     st.session_state.bin_cards = cards
                     st.success(f"{qty_bin} Karten mit BIN {bin_input_tab1} generiert & sortiert!")
                     
@@ -194,6 +229,8 @@ with tab2:
     with col_y: year_input = st.text_input("Jahr", key="y2")
     with col_c: cvv_input = st.text_input("CVV", key="c2")
 
+    use_sandbox = st.checkbox("Echten Stripe Sandbox-Check aktivieren (benötigt API-Key)")
+
     if st.button("Generieren", key="gen2"):
         cards = []
         for _ in range(quantity):
@@ -208,9 +245,7 @@ with tab2:
             )
             cards.append(card)
         
-        # SORTIEREN NACH CC-NUMMER
         cards = sorted(cards, key=lambda x: x["CC-Nummer"])
-        
         st.session_state.cards = cards
         st.success(f"{quantity} Karten generiert & sortiert!")
         
@@ -231,18 +266,19 @@ with tab2:
             st.toast(f"**{quantity} CCs kopiert!**", icon="Success")
             st.markdown(f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>', unsafe_allow_html=True)
 
-    if "cards" in st.session_state and st.button("Live-Check simulieren", key="check2"):
+    if "cards" in st.session_state and st.button("Live-Check durchführen", key="check2"):
         results = []
         progress = st.progress(0)
         for i, card in enumerate(st.session_state.cards):
-            check = simulate_check(card)
+            if use_sandbox and provider == "Stripe" and stripe_key.startswith("sk_test_"):
+                check = stripe_sandbox_check(card["CC-Nummer"], card["Ablaufdatum"].split("/")[0], card["Ablaufdatum"].split("/")[1], card["CVV"], stripe_key)
+            else:
+                check = simulate_check(card)  # Fallback zur Simulation
             results.append({**card, **check})
             progress.progress((i + 1) / len(st.session_state.cards))
         
-        # SORTIEREN NACH CC-NUMMER
         results = sorted(results, key=lambda x: x["CC-Nummer"])
-        
-        st.success("Simulation abgeschlossen! Ergebnisse sortiert.")
+        st.success("Check abgeschlossen! Ergebnisse sortiert.")
         all_ccs = "\n".join(res["CC-Nummer"] for res in results)
         
         for i, res in enumerate(results):
@@ -254,7 +290,7 @@ with tab2:
                 if st.button("Kopieren", key=f"check_copy_{i}"):
                     st.toast(f"**{res['CC-Nummer']}** kopiert!", icon="Success")
                     st.markdown(f'<script>navigator.clipboard.writeText("{res["CC-Nummer"]}")</script>', unsafe_allow_html=True)
-            with col5: st.write(f"**{res['status']}**")
+            with col5: st.markdown(f"**{res['status']}** - {res['Nachricht'][:30]}...")
         
         st.markdown("---")
         if st.button("Alle CCs kopieren", type="secondary", key="copy_all_check"):
@@ -279,15 +315,15 @@ with tab3:
 # SIDEBAR
 # ========================================
 with st.sidebar:
-    st.header("Info")
+    st.header("Sandbox-Setup")
     st.markdown("""
-    - **Sortiert nach CC-Nummer**
-    - **Kopiere einzeln oder alle**
-    - Kein CSV nötig
+    - **Stripe Key:** `sk_test_...` (Test-Mode)
+    - **Aktiviere Checkbox** für echten Check
+    - **Nur Test-Karten!** Keine realen Zahlungen
     """)
-    st.markdown("### Echte Tests:")
+    st.markdown("### Docs:")
     st.markdown("""
-    - [Stripe](https://docs.stripe.com/testing)  
+    - [Stripe Testing](https://docs.stripe.com/testing)  
     - [PayPal Sandbox](https://developer.paypal.com)
     """)
-    st.caption("Geordnet & schnell")
+    st.caption("Legal & sandbox-sicher")
