@@ -31,7 +31,6 @@ PAYPAL_TEST_CARDS = {
 # ========================================
 
 def luhn_checksum(card_number: str) -> str:
-    """Luhn-Algorithmus: Gibt gültige CC mit Prüfziffer zurück."""
     digits = [int(d) for d in card_number]
     for i in range(len(digits) - 2, -1, -2):
         digits[i] *= 2
@@ -43,7 +42,6 @@ def luhn_checksum(card_number: str) -> str:
 
 
 def generate_from_bin(bin_prefix: str, quantity: int = 1):
-    """Generiert CCs mit gegebener BIN (6 Ziffern)."""
     if len(bin_prefix) != 6 or not bin_prefix.isdigit():
         raise ValueError("BIN muss genau 6 Ziffern sein.")
     
@@ -129,15 +127,15 @@ def search_bin(bin_input):
 # STREAMLIT UI
 # ========================================
 
-st.set_page_config(page_title="CC Generator + BIN", layout="wide")
+st.set_page_config(page_title="CC Generator + Kopieren", layout="wide")
 st.title("Test-Kreditkarten Generator")
-st.caption("Entwickler-Tool – nur für Testzwecke")
+st.caption("Klicke auf die CC-Nummer → kopiert!")
 
 # === TABS ===
 tab1, tab2, tab3 = st.tabs(["Von BIN generieren", "Normal generieren", "BIN suchen"])
 
 # ========================================
-# TAB 1: Von BIN CC erstellen
+# TAB 1: Von BIN generieren
 # ========================================
 with tab1:
     st.subheader("CCs von einer BIN generieren")
@@ -150,10 +148,21 @@ with tab1:
                 try:
                     cards = generate_from_bin(bin_input_tab1, qty_bin)
                     st.success(f"{qty_bin} Karten mit BIN {bin_input_tab1} generiert!")
-                    df = pd.DataFrame(cards)
-                    st.dataframe(df, use_container_width=True)
-                    csv = df.to_csv(index=False).encode()
-                    st.download_button("CSV herunterladen", csv, f"cc_bin_{bin_input_tab1}.csv", "text/csv")
+                    
+                    # Tabelle mit Kopier-Button
+                    for card in cards:
+                        col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                        with col1:
+                            st.code(card["CC-Nummer"], language=None)
+                        with col2:
+                            st.write(card["Ablaufdatum"])
+                        with col3:
+                            st.write(card["CVV"])
+                        with col4:
+                            if st.button("Kopieren", key=f"copy_bin_{card['CC-Nummer']}"):
+                                st.toast(f"**{card['CC-Nummer']}** kopiert!", icon="Success")
+                                st.write(f"<textarea id='copy_{card['CC-Nummer']}' style='display:none'>{card['CC-Nummer']}</textarea>", unsafe_allow_html=True)
+                                st.write(f"<script>navigator.clipboard.writeText('{card['CC-Nummer']}');</script>", unsafe_allow_html=True)
                 except ValueError as e:
                     st.error(str(e))
         else:
@@ -197,7 +206,20 @@ with tab2:
             cards.append(card)
         st.session_state.cards = cards
         st.success(f"{quantity} Karten generiert")
-        st.dataframe(pd.DataFrame(cards), use_container_width=True)
+        
+        # Tabelle mit Kopier-Button
+        for card in cards:
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            with col1:
+                st.code(card["CC-Nummer"], language=None)
+            with col2:
+                st.write(card["Ablaufdatum"])
+            with col3:
+                st.write(card["CVV"])
+            with col4:
+                if st.button("Kopieren", key=f"copy_{card['CC-Nummer']}"):
+                    st.toast(f"**{card['CC-Nummer']}** kopiert!", icon="Success")
+                    st.write(f"<script>navigator.clipboard.writeText('{card['CC-Nummer']}');</script>", unsafe_allow_html=True)
 
     if "cards" in st.session_state and st.button("Live-Check simulieren", key="check2"):
         results = []
@@ -206,9 +228,18 @@ with tab2:
             check = simulate_check(card)
             results.append({**card, **check})
             progress.progress((i + 1) / len(st.session_state.cards))
-        df = pd.DataFrame(results)
-        st.dataframe(df[["Provider", "Typ", "CC-Nummer", "Ablaufdatum", "CVV", "status", "Nachricht"]], use_container_width=True)
-        st.download_button("CSV", df.to_csv(index=False).encode(), "check_results.csv", "text/csv")
+        
+        st.success("Simulation abgeschlossen!")
+        for res in results:
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 1, 1, 2])
+            with col1: st.code(res["CC-Nummer"])
+            with col2: st.write(res["Ablaufdatum"])
+            with col3: st.write(res["CVV"])
+            with col4:
+                if st.button("Kopieren", key=f"check_copy_{res['CC-Nummer']}"):
+                    st.toast(f"**{res['CC-Nummer']}** kopiert!", icon="Success")
+                    st.write(f"<script>navigator.clipboard.writeText('{res['CC-Nummer']}');</ SCRIPT>", unsafe_allow_html=True)
+            with col5: st.write(f"**{res['status']}**")
 
 # ========================================
 # TAB 3: BIN suchen
@@ -230,13 +261,13 @@ with tab3:
 with st.sidebar:
     st.header("Info")
     st.markdown("""
-    - **Nur Testdaten!**
-    - Luhn-Check wird angewendet
-    - BIN-Suche: [binlist.net](https://binlist.net)
+    - **Kopiere mit Klick!**
+    - Kein CSV nötig
+    - Luhn-Check aktiv
     """)
     st.markdown("### Echte Tests:")
     st.markdown("""
     - [Stripe](https://docs.stripe.com/testing)  
     - [PayPal Sandbox](https://developer.paypal.com)
     """)
-    st.caption("Legal & sicher")
+    st.caption("Kopierbereit")
