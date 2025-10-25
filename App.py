@@ -1,83 +1,66 @@
-import streamlit as st
-import random, pandas as pd, time
+import streamlit as st, random, pandas as pd, time, requests
 
-# --- KONFIG ---
-CARD_TYPES = {
-    "Visa": (["4"], 16), "MasterCard": (["51","52","53","54","55"], 16),
-    "American Express": (["34","37"], 15), "Discover": (["6011","65"], 16),
-    "Diners Club": (["30","36","38"], 14), "JCB": (["3528","3529"], 16)
-}
-STRIPE_CARDS = {"Erfolgreich": "4242424242424242", "Abgelehnt": "4000000000000002", "Unzureichend": "4000000000009995"}
-PAYPAL_CARDS = {"Erfolgreich": "4532015112830366", "Abgelehnt": "4032039944505422"}
+# --- CONFIG ---
+TYPES = {"V":["4"], "M":["51","52","53","54","55"], "A":["34","37"], "D":["6011","65"]}
+STRIPE = {"OK":"4242424242424242", "NO":"4000000000000002"}
+PAYPAL = {"Si":"4532015112830366", "No":"4032039944505422"}
 
-def luhn(cc): 
-    d = [int(x) for x in cc]; 
-    for i in range(len(d)-2, -1, -2): d[i] = d[i]*2 if d[i] <= 4 else d[i]*2-9
-    return cc[:-1] + str((10 - sum(d)%10)%10)
+def luhn(c):d=[*map(int,c)];[setattr(d,i,d[i]*2-9*(d[i]>4))for i in range(len(d)-2,-1,-2)];return c[:-1]+str((10-sum(d)%10)%10)
+def gen(t="V",p="Sim",s="OK",b=None,m=None,y=None,c=None):
+ if p!="Sim":cc=(STRIPE if p=="Stripe" else PAYPAL).get(s,STRIPE["OK"])
+ else:pref=random.choice(TYPES[t]);b=b or pref+"".join(str(random.randint(0,9))for _ in range(6-len(pref)));cc=luhn(b+"0"*(16-len(b)))
+ m=f"{int(m):02d}"if m and 1<=int(m)<=12 else f"{random.randint(1,12):02d}"
+ y=y if y and 2026<=int(y)<=2030 else str(random.randint(2026,2030))
+ cv=c if c and len(str(c))==(4 if t=="A" else 3)else"".join(str(random.randint(0,9))for _ in range(4 if t=="A" else 3))
+ return {"T":t,"P":p,"CC":cc,"MM/YY":f"{m}/{y}","CVV":cv}
 
-def gen_card(typ="Visa", prov="Sim", scen="Erfolgreich", bin=None, mon=None, jahr=None, cvv=None):
-    if prov in ["Stripe","PayPal"]:
-        cc = (STRIPE_CARDS if prov=="Stripe" else PAYPAL_CARDS).get(scen, STRIPE_CARDS["Erfolgreich"])
-    else:
-        pref, length = CARD_TYPES[typ]
-        start = bin or random.choice(pref) + "".join(str(random.randint(0,9)) for _ in range(6-len(random.choice(pref))))
-        cc = start + "".join(str(random.randint(0,9)) for _ in range(length - len(start) - 1)) + "0"
-        cc = luhn(cc)
-    mon = f"{int(mon):02d}" if mon and 1<=int(mon)<=12 else f"{random.randint(1,12):02d}"
-    jahr = jahr if jahr and 2026<=int(jahr)<=2030 else str(random.randint(2026,2030))
-    cvv_len = 4 if typ=="American Express" else 3
-    cvv = cvv if cvv and len(str(cvv))==cvv_len else "".join(str(random.randint(0,9)) for _ in range(cvv_len))
-    return {"Typ":typ, "Provider":prov, "CC":cc, "MM/YY":f"{mon}/{jahr}", "CVV":cvv}
+def chk(card):time.sleep(.2);s=random.choices(["OK","NO"],[7,3])[0];return{"status":s,"msg":"Live"if s=="OK"else"Dead"}
 
-def sim_check(card):
-    time.sleep(0.3)
-    opts = {"Stripe": [("succeeded",60),("card_declined",40)],
-            "PayPal": [("approved",70),("declined",30)],
-            "Sim": [("live",60),("dead",40)]}[card["Provider"]]
-    status = random.choices([s for s,_ in opts], [w for _,w in opts])[0]
-    return {"status":status, "msg": {"succeeded":"OK","approved":"OK","live":"Live","card_declined":"Abgelehnt","declined":"Abgelehnt","dead":"Tot"}[status]}
+def bin_search(bin_input):
+    try:
+        resp = requests.get(f"https://binlist.net/json/{bin_input}").json()
+        return {
+            "BIN": bin_input,
+            "Scheme": resp.get("scheme", "N/A"),
+            "Type": resp.get("type", "N/A"),
+            "Brand": resp.get("brand", "N/A"),
+            "Country": resp.get("country", {}).get("name", "N/A"),
+            "Bank": resp.get("bank", {}).get("name", "N/A")
+        }
+    except:
+        return {"Error": "BIN-Suche fehlgeschlagen"}
 
 # --- UI ---
-st.set_page_config("CC Test Tool", layout="wide")
-st.title("Test-CC Generator + Sim-Check")
-st.caption("Nur für Entwicklung! Keine echte Prüfung.")
+st.set_page_config("CC Mini", "wide")
+st.title("CC Test + BIN Suche")
+c1,c2,c3,c4=st.columns(4)
+with c1:p=st.selectbox("Prov",["Sim","Stripe","PayPal"])
+with c2:t=st.selectbox("Typ",["V","M","A","D"])
+with c3:s=st.selectbox("Szen",STRIPE.keys()if p=="Stripe"else PAYPAL.keys()if p=="PayPal"else["Live"])
+with c4:q=st.number_input("Anz",1,50,1)
 
-c1, c2, c3, c4 = st.columns(4)
-with c1: prov = st.selectbox("Provider", ["Simulation","Stripe","PayPal"])
-with c2: typ = st.selectbox("Typ", list(CARD_TYPES))
-with c3: 
-    if prov!="Simulation": scen = st.selectbox("Szenario", STRIPE_CARDS.keys() if prov=="Stripe" else PAYPAL_CARDS.keys())
-    else: scen = "Live"
-with c4: qty = st.number_input("Anzahl",1,50,1)
-
-mon = st.text_input("Monat (01-12)", "")
-jahr = st.text_input("Jahr", "")
-cvv = st.text_input("CVV", "")
+bin_inp = st.text_input("BIN (6 Ziffern, optional)", "")
+m=st.text_input("Monat","");y=st.text_input("Jahr","");cv=st.text_input("CVV","")
 
 if st.button("Generieren"):
-    cards = [gen_card(typ, prov, scen, None, mon or None, jahr or None, cvv or None) for _ in range(qty)]
-    st.session_state.cards = cards
-    st.success(f"{qty} Karten generiert")
-    st.dataframe(pd.DataFrame(cards), use_container_width=True)
+ k=[gen(t,p,s,bin_inp or None,m or None,y or None,cv or None)for _ in range(q)]
+ st.session_state.k=k;st.success(f"{q} Karten")
+ st.dataframe(pd.DataFrame(k),True)
 
-if "cards" in st.session_state and st.button("Check simulieren", type="primary"):
-    st.info("Simuliere API...")
-    res = []
-    bar = st.progress(0)
-    for i, c in enumerate(st.session_state.cards):
-        chk = sim_check(c); chk.update(c); res.append(chk)
-        bar.progress((i+1)/len(c))
-    df = pd.DataFrame(res)[["Provider","Typ","CC","MM/YY","CVV","status","msg"]]
-    st.success("Fertig!")
-    st.dataframe(df, use_container_width=True)
-    st.download_button("CSV", df.to_csv(index=False).encode(), "cc_check.csv", "text/csv")
+if "k"in st.session_state and st.button("Check",type="primary"):
+ st.info("Sim...")
+ r=[];b=st.progress(0)
+ for i,c in enumerate(st.session_state.k):
+  x=chk(c);x.update(c);r.append(x);b.progress((i+1)/q)
+ df=pd.DataFrame(r)[["P","T","CC","MM/YY","CVV","status","msg"]]
+ st.success("OK");st.dataframe(df,True)
+ st.download_button("CSV",df.to_csv(index=False).encode(),"cc.csv","text/csv")
+
+if bin_inp and st.button("BIN suchen"):
+    result = bin_search(bin_inp)
+    st.json(result)
 
 # --- Sidebar ---
 with st.sidebar:
-    st.header("Legal testen")
-    st.markdown("""
-    **Stripe:** [docs.stripe.com/testing](https://docs.stripe.com/testing)  
-    **PayPal:** [developer.paypal.com](https://developer.paypal.com)  
-    → Nutze **deine** Test-Keys in Sandbox!
-    """)
-    st.caption("Kompakt & sicher")
+ st.markdown("**Legal testen:**\n- [Stripe Test](https://docs.stripe.com/testing)\n- [PayPal Sandbox](https://developer.paypal.com)")
+ st.caption("Mit BIN-Suche via binlist.net")
