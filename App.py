@@ -300,4 +300,4 @@ with st.sidebar:
     - Lass Felder leer für Zufallswerte.
     - Die CC-Nummer erfüllt den Luhn-Check (gültig aussehend).
     - Für Hosting: [Streamlit Cloud Guide](https://docs.streamlit.io/streamlit-community-cloud/get-started)
-    """)
+    ")
