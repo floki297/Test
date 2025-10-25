@@ -51,7 +51,7 @@ def generate_from_bin(bin_prefix: str, quantity: int = 1):
         temp_number = bin_prefix + middle + "0"
         cc_number = luhn_checksum(temp_number)
 
-        month = f"{random.randint(1, 12):02d}"
+        month = f"{random.randint(1,  Odpowied:12):02d}"
         year = str(random.randint(2026, 2030))
         cvv = "".join(str(random.randint(0, 9)) for _ in range(3))
 
@@ -61,7 +61,7 @@ def generate_from_bin(bin_prefix: str, quantity: int = 1):
             "Ablaufdatum": f"{month}/{year}",
             "CVV": cvv
         })
-    return cards
+    return sorted(cards, key=lambda x: x["CC-Nummer"])  # SORTIEREN
 
 
 def generate_card(
@@ -127,9 +127,9 @@ def search_bin(bin_input):
 # STREAMLIT UI
 # ========================================
 
-st.set_page_config(page_title="CC Generator + Kopieren", layout="wide")
+st.set_page_config(page_title="CC Generator + Sortiert", layout="wide")
 st.title("Test-Kreditkarten Generator")
-st.caption("Klicke auf „Alle kopieren“ – sofort in Zwischenablage!")
+st.caption("Karten werden automatisch sortiert nach CC-Nummer")
 
 # === TABS ===
 tab1, tab2, tab3 = st.tabs(["Von BIN generieren", "Normal generieren", "BIN suchen"])
@@ -144,37 +144,28 @@ with tab1:
 
     if st.button("Von BIN generieren", type="primary", key="gen_bin"):
         if bin_input_tab1:
-            with st.spinner("Generiere Karten..."):
+            with st.spinner("Generiere & sortiere Karten..."):
                 try:
                     cards = generate_from_bin(bin_input_tab1, qty_bin)
                     st.session_state.bin_cards = cards
-                    st.success(f"{qty_bin} Karten mit BIN {bin_input_tab1} generiert!")
+                    st.success(f"{qty_bin} Karten mit BIN {bin_input_tab1} generiert & sortiert!")
                     
-                    # Alle CCs sammeln
                     all_ccs = "\n".join(card["CC-Nummer"] for card in cards)
                     
-                    # Tabelle mit Kopier-Buttons
                     for i, card in enumerate(cards):
                         col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
                         with col1: st.code(card["CC-Nummer"], language=None)
                         with col2: st.write(card["Ablaufdatum"])
                         with col3: st.write(card["CVV"])
                         with col4:
-                            if st.button("Kopieren", key=f"copy_bin_{i}_{card['CC-Nummer']}"):
+                            if st.button("Kopieren", key=f"copy_bin_{i}"):
                                 st.toast(f"**{card['CC-Nummer']}** kopiert!", icon="Success")
-                                st.markdown(
-                                    f'<script>navigator.clipboard.writeText("{card["CC-Nummer"]}")</script>',
-                                    unsafe_allow_html=True
-                                )
+                                st.markdown(f'<script>navigator.clipboard.writeText("{card["CC-Nummer"]}")</script>', unsafe_allow_html=True)
                     
-                    # Alle kopieren Button
                     st.markdown("---")
                     if st.button("Alle CCs kopieren", type="secondary", key="copy_all_bin"):
                         st.toast(f"**{qty_bin} CCs kopiert!**", icon="Success")
-                        st.markdown(
-                            f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>',
-                            unsafe_allow_html=True
-                        )
+                        st.markdown(f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>', unsafe_allow_html=True)
                 except ValueError as e:
                     st.error(str(e))
         else:
@@ -216,34 +207,29 @@ with tab2:
                 cvv=cvv_input if cvv_input else None
             )
             cards.append(card)
-        st.session_state.cards = cards
-        st.success(f"{quantity} Karten generiert")
         
-        # Alle CCs sammeln
+        # SORTIEREN NACH CC-NUMMER
+        cards = sorted(cards, key=lambda x: x["CC-Nummer"])
+        
+        st.session_state.cards = cards
+        st.success(f"{quantity} Karten generiert & sortiert!")
+        
         all_ccs = "\n".join(card["CC-Nummer"] for card in cards)
         
-        # Tabelle mit Kopier-Buttons
         for i, card in enumerate(cards):
             col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
             with col1: st.code(card["CC-Nummer"], language=None)
             with col2: st.write(card["Ablaufdatum"])
             with col3: st.write(card["CVV"])
             with col4:
-                if st.button("Kopieren", key=f"copy_{i}_{card['CC-Nummer']}"):
+                if st.button("Kopieren", key=f"copy_{i}"):
                     st.toast(f"**{card['CC-Nummer']}** kopiert!", icon="Success")
-                    st.markdown(
-                        f'<script>navigator.clipboard.writeText("{card["CC-Nummer"]}")</script>',
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f'<script>navigator.clipboard.writeText("{card["CC-Nummer"]}")</script>', unsafe_allow_html=True)
         
-        # Alle kopieren Button
         st.markdown("---")
         if st.button("Alle CCs kopieren", type="secondary", key="copy_all"):
             st.toast(f"**{quantity} CCs kopiert!**", icon="Success")
-            st.markdown(
-                f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>', unsafe_allow_html=True)
 
     if "cards" in st.session_state and st.button("Live-Check simulieren", key="check2"):
         results = []
@@ -253,7 +239,10 @@ with tab2:
             results.append({**card, **check})
             progress.progress((i + 1) / len(st.session_state.cards))
         
-        st.success("Simulation abgeschlossen!")
+        # SORTIEREN NACH CC-NUMMER
+        results = sorted(results, key=lambda x: x["CC-Nummer"])
+        
+        st.success("Simulation abgeschlossen! Ergebnisse sortiert.")
         all_ccs = "\n".join(res["CC-Nummer"] for res in results)
         
         for i, res in enumerate(results):
@@ -262,21 +251,15 @@ with tab2:
             with col2: st.write(res["Ablaufdatum"])
             with col3: st.write(res["CVV"])
             with col4:
-                if st.button("Kopieren", key=f"check_copy_{i}_{res['CC-Nummer']}"):
+                if st.button("Kopieren", key=f"check_copy_{i}"):
                     st.toast(f"**{res['CC-Nummer']}** kopiert!", icon="Success")
-                    st.markdown(
-                        f'<script>navigator.clipboard.writeText("{res["CC-Nummer"]}")</script>',
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f'<script>navigator.clipboard.writeText("{res["CC-Nummer"]}")</script>', unsafe_allow_html=True)
             with col5: st.write(f"**{res['status']}**")
         
         st.markdown("---")
         if st.button("Alle CCs kopieren", type="secondary", key="copy_all_check"):
             st.toast(f"**{len(results)} CCs kopiert!**", icon="Success")
-            st.markdown(
-                f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<script>navigator.clipboard.writeText(`{all_ccs}`)</script>', unsafe_allow_html=True)
 
 # ========================================
 # TAB 3: BIN suchen
@@ -298,8 +281,8 @@ with tab3:
 with st.sidebar:
     st.header("Info")
     st.markdown("""
-    - **Kopiere mit Klick!**
-    - **Alle kopieren** → alles auf einmal
+    - **Sortiert nach CC-Nummer**
+    - **Kopiere einzeln oder alle**
     - Kein CSV nötig
     """)
     st.markdown("### Echte Tests:")
@@ -307,4 +290,4 @@ with st.sidebar:
     - [Stripe](https://docs.stripe.com/testing)  
     - [PayPal Sandbox](https://developer.paypal.com)
     """)
-    st.caption("Fehlerfrei & schnell")
+    st.caption("Geordnet & schnell")
